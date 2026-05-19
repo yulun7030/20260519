@@ -3,18 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 動物猜拳大對決</title>
-    <!-- Tailwind CSS for fast and beautiful styling -->
+    <title>AI 手勢猜拳動物大對決</title>
+    <!-- Tailwind CSS 用於精美且響應式的排版 -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- FontAwesome for icons -->
+    <!-- FontAwesome 圖示 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <!-- MediaPipe Hands and Camera Utils -->
+    <!-- MediaPipe Hands & Camera 相關套件 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
 
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=Noto+Sans+TC:wght@400;700;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&family=ZCOOL+KuaiLe&display=swap');
         
         body {
             font-family: 'Noto Sans TC', sans-serif;
@@ -26,12 +26,12 @@
             font-family: 'ZCOOL KuaiLe', cursive;
         }
 
-        /* 鏡像翻轉 */
+        /* 鏡像翻轉視訊與畫布，手勢操作更直覺 */
         #webcam, #output_canvas {
             transform: scaleX(-1);
         }
 
-        /* 地震效果 */
+        /* 畫面地震搖晃效果 */
         @keyframes earthquake {
             0% { transform: translate(0, 0) rotate(0deg); }
             10% { transform: translate(-8px, 6px) rotate(-1.5deg); }
@@ -50,378 +50,327 @@
             animation: earthquake 0.15s infinite;
         }
 
-        /* 紅色警鈴閃爍 */
+        /* 紅色警鈴閃爍效果 */
         @keyframes alarm-flash {
             0%, 100% { background-color: rgba(220, 38, 38, 0.2); }
-            50% { background-color: rgba(220, 38, 38, 0.85); }
+            50% { background-color: rgba(220, 38, 38, 0.8); }
         }
 
         .alarm-active {
-            animation: alarm-flash 0.5s infinite;
+            animation: alarm-flash 0.4s infinite;
         }
 
-        /* 動物倒地動畫 */
+        /* 動物被打敗倒地過程動畫 */
         .animal-collapse {
-            transition: transform 1.2s cubic-bezier(0.36, 0.07, 0.19, 0.97), opacity 1s ease;
+            transition: transform 1.5s cubic-bezier(0.25, 1, 0.5, 1), opacity 1.2s ease, filter 1.2s ease;
             transform-origin: bottom center;
-            transform: translateY(180px) rotate(85deg) scale(0.85);
-            opacity: 0.1;
-            filter: grayscale(100%) blur(2px);
+            transform: translateY(220px) rotate(85deg) scale(0.7);
+            opacity: 0;
+            filter: grayscale(100%) blur(4px);
         }
 
-        /* 漂浮動畫 */
+        /* 飄浮動畫，增加動物對手的生動感 */
         @keyframes float {
             0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-12px); }
+            50% { transform: translateY(-10px); }
         }
         .float-animation {
-            animation: float 3s ease-in-out infinite;
-        }
-
-        /* 禁用點擊 */
-        .pointer-events-none {
-            pointer-events: none;
+            animation: float 2.5s ease-in-out infinite;
         }
     </style>
 </head>
-<body class="min-h-screen text-white select-none">
+<body class="min-h-screen text-white select-none flex flex-col items-center justify-center p-4">
 
-    <!-- 全域音效管理器 (Web Audio API) -->
     <script>
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         let audioCtx = null;
 
+        // 生成電子合成音效，免外部音檔
         function playSound(type) {
-            if (!audioCtx) audioCtx = new AudioCtx();
-            
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
+            try {
+                if (!audioCtx) audioCtx = new AudioCtx();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
 
-            const now = audioCtx.currentTime;
+                const now = audioCtx.currentTime;
 
-            if (type === 'click') {
-                osc.frequency.setValueAtTime(600, now);
-                osc.frequency.exponentialRampToValueAtTime(150, now + 0.1);
-                gain.gain.setValueAtTime(0.15, now);
-                gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
-                osc.start(now);
-                osc.stop(now + 0.1);
-            } else if (type === 'tick') {
-                osc.frequency.setValueAtTime(800, now);
-                gain.gain.setValueAtTime(0.1, now);
-                gain.gain.linearRampToValueAtTime(0.01, now + 0.05);
-                osc.start(now);
-                osc.stop(now + 0.05);
-            } else if (type === 'go') {
-                osc.frequency.setValueAtTime(440, now);
-                osc.frequency.exponentialRampToValueAtTime(880, now + 0.25);
-                gain.gain.setValueAtTime(0.2, now);
-                gain.gain.linearRampToValueAtTime(0.01, now + 0.3);
-                osc.start(now);
-                osc.stop(now + 0.3);
-            } else if (type === 'win') {
-                const freqs = [523.25, 659.25, 783.99, 1046.50];
-                freqs.forEach((f, index) => {
-                    const o = audioCtx.createOscillator();
-                    const g = audioCtx.createGain();
-                    o.connect(g);
-                    g.connect(audioCtx.destination);
-                    o.frequency.setValueAtTime(f, now + index * 0.08);
-                    g.gain.setValueAtTime(0.1, now + index * 0.08);
-                    g.gain.linearRampToValueAtTime(0.01, now + index * 0.08 + 0.3);
-                    o.start(now + index * 0.08);
-                    o.stop(now + index * 0.08 + 0.4);
-                });
-            } else if (type === 'lose') {
-                osc.frequency.setValueAtTime(300, now);
-                osc.frequency.linearRampToValueAtTime(80, now + 0.6);
-                gain.gain.setValueAtTime(0.2, now);
-                gain.gain.linearRampToValueAtTime(0.01, now + 0.6);
-                osc.start(now);
-                osc.stop(now + 0.6);
-            } else if (type === 'alarm') {
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(180, now);
-                osc.frequency.linearRampToValueAtTime(380, now + 0.4);
-                gain.gain.setValueAtTime(0.15, now);
-                gain.gain.linearRampToValueAtTime(0.01, now + 0.4);
-                osc.start(now);
-                osc.stop(now + 0.4);
+                if (type === 'click') {
+                    osc.frequency.setValueAtTime(500, now);
+                    osc.frequency.exponentialRampToValueAtTime(150, now + 0.1);
+                    gain.gain.setValueAtTime(0.15, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
+                    osc.start(now);
+                    osc.stop(now + 0.1);
+                } else if (type === 'tick') {
+                    osc.frequency.setValueAtTime(650, now);
+                    gain.gain.setValueAtTime(0.1, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.08);
+                    osc.start(now);
+                    osc.stop(now + 0.08);
+                } else if (type === 'go') {
+                    osc.frequency.setValueAtTime(400, now);
+                    osc.frequency.exponentialRampToValueAtTime(900, now + 0.2);
+                    gain.gain.setValueAtTime(0.2, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.25);
+                    osc.start(now);
+                    osc.stop(now + 0.25);
+                } else if (type === 'win') {
+                    const notes = [523.25, 659.25, 783.99, 1046.50];
+                    notes.forEach((f, index) => {
+                        const o = audioCtx.createOscillator();
+                        const g = audioCtx.createGain();
+                        o.connect(g);
+                        g.connect(audioCtx.destination);
+                        o.frequency.setValueAtTime(f, now + index * 0.08);
+                        g.gain.setValueAtTime(0.1, now + index * 0.08);
+                        g.gain.linearRampToValueAtTime(0.01, now + index * 0.08 + 0.25);
+                        o.start(now + index * 0.08);
+                        o.stop(now + index * 0.08 + 0.35);
+                    });
+                } else if (type === 'lose') {
+                    osc.frequency.setValueAtTime(280, now);
+                    osc.frequency.linearRampToValueAtTime(90, now + 0.5);
+                    gain.gain.setValueAtTime(0.2, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.5);
+                    osc.start(now);
+                    osc.stop(now + 0.5);
+                } else if (type === 'alarm') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(160, now);
+                    osc.frequency.linearRampToValueAtTime(320, now + 0.4);
+                    gain.gain.setValueAtTime(0.15, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.4);
+                    osc.start(now);
+                    osc.stop(now + 0.4);
+                }
+            } catch (e) {
+                console.log("音效播不出來沒關係，不影響遊戲：", e);
             }
         }
     </script>
 
-    <!-- ====== 1. 主畫面 / 開始目錄 ====== -->
-    <div id="start-screen" class="min-h-screen flex flex-col items-center justify-center p-6 text-center">
-        <div class="max-w-3xl bg-gray-900/80 backdrop-blur-md rounded-3xl p-10 border border-indigo-500/30 shadow-2xl relative overflow-hidden">
-            <!-- 裝飾背景 -->
-            <div class="absolute -top-10 -left-10 w-40 h-40 bg-pink-500/20 rounded-full blur-2xl"></div>
-            <div class="absolute -bottom-10 -right-10 w-40 h-40 bg-purple-500/20 rounded-full blur-2xl"></div>
+    <!-- 1. 歡迎與對手選擇畫面 -->
+    <div id="start-screen" class="w-full max-w-4xl bg-gray-900/80 backdrop-blur-md rounded-3xl p-8 border border-indigo-500/30 shadow-2xl text-center relative overflow-hidden transition-all duration-300">
+        <div class="absolute -top-10 -left-10 w-40 h-40 bg-pink-500/10 rounded-full blur-3xl"></div>
+        <div class="absolute -bottom-10 -right-10 w-40 h-40 bg-purple-500/10 rounded-full blur-3xl"></div>
 
-            <h1 class="text-5xl md:text-7xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-purple-400 to-indigo-400 title-font tracking-wide drop-shadow-lg">
-                AI 拳擊獸王戰
-            </h1>
-            <p class="text-lg md:text-xl text-indigo-200 mb-8 max-w-xl mx-auto">
-                使用真實手勢與野生動物展開猜拳決鬥！<br>
-                <span class="text-pink-400 font-bold"><i class="fa-solid fa-heart"></i> 手比手指愛心</span> 即可在每局結束後直接重開！
-            </p>
+        <h1 class="text-4xl md:text-6xl font-extrabold mb-3 text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-purple-400 to-indigo-400 title-font tracking-wider drop-shadow-md animate-pulse">
+            AI 手勢動物猜拳決鬥
+        </h1>
+        <p class="text-indigo-200 text-sm md:text-base max-w-xl mx-auto mb-6">
+            使用真實視訊手勢進行對決！<br>
+            <span class="text-yellow-300 font-bold"><i class="fa-solid fa-trophy text-yellow-400"></i> 先得 3 分者（搶三勝）</span> 獲得最終勝利！
+        </p>
 
-            <!-- 裝飾用動物區 -->
-            <div class="flex justify-center gap-6 mb-10">
-                <div class="flex flex-col items-center bg-gray-800/60 p-4 rounded-2xl w-24 hover:scale-105 transition">
-                    <span class="text-5xl mb-2">🦁</span>
-                    <span class="text-xs text-amber-300">佑倫獅子頭</span>
-                </div>
-                <div class="flex flex-col items-center bg-gray-800/60 p-4 rounded-2xl w-24 hover:scale-105 transition">
-                    <span class="text-5xl mb-2">🐒</span>
-                    <span class="text-xs text-yellow-300">玉米小雞猴</span>
-                </div>
-                <div class="flex flex-col items-center bg-gray-800/60 p-4 rounded-2xl w-24 hover:scale-105 transition">
-                    <span class="text-5xl mb-2">🐼</span>
-                    <span class="text-xs text-emerald-300">熊貓林枝</span>
-                </div>
-            </div>
-
-            <button onclick="goToSelectScreen()" class="px-10 py-5 bg-gradient-to-r from-pink-500 via-purple-600 to-indigo-600 hover:from-pink-400 hover:to-indigo-500 rounded-full text-2xl font-black shadow-lg shadow-purple-500/30 transform hover:scale-105 transition-all duration-300 flex items-center gap-3 mx-auto">
-                <i class="fa-solid fa-play"></i> 進入選角大廳
-            </button>
-        </div>
-    </div>
-
-
-    <!-- ====== 2. 對手選擇畫面 ====== -->
-    <div id="select-screen" class="hidden min-h-screen flex flex-col items-center justify-center p-6">
-        <h2 class="text-4xl md:text-5xl font-extrabold mb-4 text-center text-indigo-200 title-font">
-            — 選擇你的挑戰對手 —
-        </h2>
-        <p class="text-gray-400 mb-10 text-center text-sm md:text-base">每個動物都擁有獨特的出拳偏好與 AI 實力，請謹慎選擇！</p>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl w-full">
+        <!-- 選擇對手區域 -->
+        <h2 class="text-xl font-bold text-indigo-300 mb-6">— 點擊下方動物選擇你的對手 —</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
             
-            <!-- 獅子卡片 -->
-            <button onclick="selectOpponent('lion')" class="group relative bg-gradient-to-b from-amber-900/40 to-gray-900 border-2 border-amber-500/40 hover:border-amber-400 rounded-3xl p-6 transition-all duration-300 transform hover:-translate-y-3 hover:shadow-2xl hover:shadow-amber-500/20 text-center flex flex-col items-center">
-                <div class="absolute top-4 right-4 bg-amber-500/20 text-amber-300 text-xs px-3 py-1 rounded-full border border-amber-500/40">偏愛出：石頭</div>
-                <div class="w-32 h-32 bg-amber-500/10 rounded-full flex items-center justify-center mb-6 border border-amber-500/20 group-hover:scale-110 transition duration-300">
-                    <span class="text-7xl">🦁</span>
+            <!-- 獅子 -->
+            <button onclick="selectOpponent('lion')" class="group relative bg-gradient-to-b from-amber-950/40 to-gray-950 border-2 border-amber-500/40 hover:border-amber-400 rounded-2xl p-5 transition-all duration-300 transform hover:-translate-y-2 hover:shadow-lg hover:shadow-amber-500/10 text-center flex flex-col items-center">
+                <div class="absolute top-3 right-3 bg-amber-500/20 text-amber-300 text-xs px-2.5 py-0.5 rounded-full border border-amber-500/30">偏好：石頭</div>
+                <div class="w-24 h-24 bg-amber-500/15 rounded-full flex items-center justify-center mb-4 border border-amber-500/20 group-hover:scale-110 transition duration-300">
+                    <span class="text-5xl">🦁</span>
                 </div>
-                <h3 class="text-2xl font-black text-amber-300 mb-2">威嚴獅王</h3>
-                <p class="text-gray-400 text-sm mb-4">力量驚人！極高機率使用排山倒海的「石頭」，試著用布來反制他！</p>
-                <div class="mt-auto px-6 py-2.5 bg-amber-500 group-hover:bg-amber-400 text-gray-950 font-black rounded-xl text-sm transition-colors">開戰</div>
+                <h3 class="text-lg font-black text-amber-300 mb-1">威嚴獅王</h3>
+                <p class="text-gray-400 text-xs leading-relaxed">常出力量無雙的「石頭」，試著用「布」制服牠！</p>
             </button>
 
-            <!-- 猴子卡片 -->
-            <button onclick="selectOpponent('monkey')" class="group relative bg-gradient-to-b from-yellow-900/40 to-gray-900 border-2 border-yellow-500/40 hover:border-yellow-400 rounded-3xl p-6 transition-all duration-300 transform hover:-translate-y-3 hover:shadow-2xl hover:shadow-yellow-500/20 text-center flex flex-col items-center">
-                <div class="absolute top-4 right-4 bg-yellow-500/20 text-yellow-300 text-xs px-3 py-1 rounded-full border border-yellow-500/40">偏愛出：剪刀</div>
-                <div class="w-32 h-32 bg-yellow-500/10 rounded-full flex items-center justify-center mb-6 border border-yellow-500/20 group-hover:scale-110 transition duration-300">
-                    <span class="text-7xl">🐒</span>
+            <!-- 猴子 -->
+            <button onclick="selectOpponent('monkey')" class="group relative bg-gradient-to-b from-yellow-950/40 to-gray-950 border-2 border-yellow-500/40 hover:border-yellow-400 rounded-2xl p-5 transition-all duration-300 transform hover:-translate-y-2 hover:shadow-lg hover:shadow-yellow-500/10 text-center flex flex-col items-center">
+                <div class="absolute top-3 right-3 bg-yellow-500/20 text-yellow-300 text-xs px-2.5 py-0.5 rounded-full border border-yellow-500/30">偏好：剪刀</div>
+                <div class="w-24 h-24 bg-yellow-500/15 rounded-full flex items-center justify-center mb-4 border border-yellow-500/20 group-hover:scale-110 transition duration-300">
+                    <span class="text-5xl">🐒</span>
                 </div>
-                <h3 class="text-2xl font-black text-yellow-300 mb-2">機靈小猴</h3>
-                <p class="text-gray-400 text-sm mb-4">速度飛快！特別喜歡出迅速如風的「剪刀」，出石頭將能給他痛擊！</p>
-                <div class="mt-auto px-6 py-2.5 bg-yellow-500 group-hover:bg-yellow-400 text-gray-950 font-black rounded-xl text-sm transition-colors">開戰</div>
+                <h3 class="text-lg font-black text-yellow-300 mb-1">機靈小猴</h3>
+                <p class="text-gray-400 text-xs leading-relaxed">喜歡出靈巧多變的「剪刀」，趕快用「石頭」反擊！</p>
             </button>
 
-            <!-- 熊貓卡片 -->
-            <button onclick="selectOpponent('panda')" class="group relative bg-gradient-to-b from-emerald-900/40 to-gray-900 border-2 border-emerald-500/40 hover:border-emerald-400 rounded-3xl p-6 transition-all duration-300 transform hover:-translate-y-3 hover:shadow-2xl hover:shadow-emerald-500/20 text-center flex flex-col items-center">
-                <div class="absolute top-4 right-4 bg-emerald-500/20 text-emerald-300 text-xs px-3 py-1 rounded-full border border-emerald-500/40">偏愛出：布</div>
-                <div class="w-32 h-32 bg-emerald-500/10 rounded-full flex items-center justify-center mb-6 border border-emerald-500/20 group-hover:scale-110 transition duration-300">
-                    <span class="text-7xl">🐼</span>
+            <!-- 熊貓 -->
+            <button onclick="selectOpponent('panda')" class="group relative bg-gradient-to-b from-emerald-950/40 to-gray-950 border-2 border-emerald-500/40 hover:border-emerald-400 rounded-2xl p-5 transition-all duration-300 transform hover:-translate-y-2 hover:shadow-lg hover:shadow-emerald-500/10 text-center flex flex-col items-center">
+                <div class="absolute top-3 right-3 bg-emerald-500/20 text-emerald-300 text-xs px-2.5 py-0.5 rounded-full border border-emerald-500/30">偏好：布</div>
+                <div class="w-24 h-24 bg-emerald-500/15 rounded-full flex items-center justify-center mb-4 border border-emerald-500/20 group-hover:scale-110 transition duration-300">
+                    <span class="text-5xl">🐼</span>
                 </div>
-                <h3 class="text-2xl font-black text-emerald-300 mb-2">大師熊貓</h3>
-                <p class="text-gray-400 text-sm mb-4">沉穩內斂！最喜歡打出包容一切的「布」，用剪刀劃破他的防線吧！</p>
-                <div class="mt-auto px-6 py-2.5 bg-emerald-500 group-hover:bg-emerald-400 text-gray-950 font-black rounded-xl text-sm transition-colors">開戰</div>
+                <h3 class="text-lg font-black text-emerald-300 mb-1">大師熊貓</h3>
+                <p class="text-gray-400 text-xs leading-relaxed">以柔克剛，偏好出「布」，出「剪刀」來撕裂牠！</p>
             </button>
 
         </div>
-
-        <button onclick="backToMenu()" class="mt-12 text-gray-400 hover:text-white transition flex items-center gap-2">
-            <i class="fa-solid fa-arrow-left"></i> 返回主畫面
-        </button>
+        
+        <p class="text-xs text-indigo-400 mt-2">提示：獲勝/失敗時，會展示獨特的動畫效果喔！</p>
     </div>
 
-
-    <!-- ====== 3. 遊戲主畫面 ====== -->
-    <div id="game-screen" class="hidden min-h-screen flex flex-col p-6 max-w-7xl mx-auto justify-between relative">
+    <!-- 2. 遊戲主對決畫面 (同一畫面，左右同框) -->
+    <div id="game-screen" class="hidden w-full max-w-5xl bg-gray-900/80 backdrop-blur-md rounded-3xl p-6 border border-indigo-500/30 shadow-2xl flex flex-col justify-between transition-all duration-300">
         
-        <!-- 上方資訊欄：時間、比分 -->
-        <div class="flex flex-col md:flex-row items-center justify-between gap-4 bg-gray-900/80 border border-indigo-500/30 p-4 rounded-2xl shadow-xl w-full animate-fade-in">
-            <div class="flex items-center gap-4">
-                <button onclick="confirmExitGame()" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-bold rounded-lg border border-gray-700 transition flex items-center gap-2">
-                    <i class="fa-solid fa-door-open"></i> 放棄退出
-                </button>
-                <div class="text-sm text-gray-400">當前對手：<span id="active-opponent-name" class="font-bold text-white">-</span></div>
-            </div>
-
-            <!-- 限時 30 秒大字 -->
-            <div class="flex items-center gap-3 px-6 py-2 bg-pink-500/10 border border-pink-500/40 rounded-full">
-                <i class="fa-solid fa-clock text-pink-400 animate-pulse text-xl"></i>
-                <span class="text-gray-300 font-semibold text-sm">剩餘時間：</span>
-                <span id="game-timer" class="text-2xl font-black text-pink-400 tracking-wider">30</span>
-                <span class="text-xs text-pink-500">秒</span>
-            </div>
-
-            <!-- 計分板 -->
-            <div class="flex items-center gap-8">
+        <!-- 上方：對手資訊與分數板 -->
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-indigo-500/20 pb-4 mb-4">
+            <button onclick="confirmExitGame()" class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-bold rounded-lg border border-gray-700 transition flex items-center gap-2">
+                <i class="fa-solid fa-circle-left"></i> 返回重新選角
+            </button>
+            
+            <div class="flex items-center gap-6">
+                <!-- 玩家得分 -->
                 <div class="text-center">
                     <p class="text-xs text-indigo-300 font-bold uppercase tracking-wider">你 (Player)</p>
-                    <p id="player-score" class="text-3xl font-black text-indigo-400">0</p>
+                    <p id="player-score" class="text-3xl font-black text-pink-400">0</p>
                 </div>
-                <div class="text-2xl font-extrabold text-gray-600">:</div>
+                <div class="text-xl font-extrabold text-gray-500">VS</div>
+                <!-- 電腦得分 -->
                 <div class="text-center">
-                    <p class="text-xs text-amber-300 font-bold uppercase tracking-wider">對手 (AI)</p>
+                    <p id="game-opponent-label" class="text-xs text-amber-300 font-bold uppercase tracking-wider">對手 (AI)</p>
                     <p id="opponent-score" class="text-3xl font-black text-amber-400">0</p>
                 </div>
             </div>
+
+            <div class="text-xs bg-indigo-500/10 border border-indigo-500/20 px-3 py-1.5 rounded-lg text-indigo-200">
+                目標：<span class="text-yellow-400 font-black">奪得 3 分</span> 贏得比賽
+            </div>
         </div>
 
-        <!-- 中間：對戰主區域 -->
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 my-6 flex-grow items-center">
+        <!-- 中間：同視角雙側對戰主區 -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center my-2">
             
-            <!-- 左側 5/12：玩家攝影機與 AI 骨架偵測 -->
+            <!-- 左側 5/12：玩家攝影機與骨架 -->
             <div class="lg:col-span-5 flex flex-col gap-3">
                 <div class="relative w-full aspect-[4/3] bg-black rounded-2xl overflow-hidden border-2 border-indigo-500/50 shadow-lg shadow-indigo-500/10">
                     <video id="webcam" class="absolute top-0 left-0 w-full h-full object-cover" autoplay playsinline muted></video>
                     <canvas id="output_canvas" class="absolute top-0 left-0 w-full h-full object-cover"></canvas>
                     
-                    <!-- 手勢即時指示框 -->
-                    <div class="absolute bottom-4 left-4 right-4 bg-gray-900/95 backdrop-blur border border-indigo-400/30 px-4 py-3 rounded-xl flex items-center justify-between">
-                        <span class="text-xs text-indigo-300 font-bold">手勢快照：</span>
-                        <span id="live-gesture" class="text-lg font-black text-pink-400 bg-pink-500/10 px-3 py-1 rounded-lg border border-pink-500/20">偵測中...</span>
+                    <!-- 倒數 3-2-1 遮罩 (覆蓋在相機上，超直覺！) -->
+                    <div id="countdown-layer" class="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-20 hidden transition-all">
+                        <div id="round-countdown" class="text-8xl font-black text-yellow-400 title-font scale-90 transition-transform">3</div>
+                        <p class="text-sm text-yellow-300 font-bold tracking-widest mt-4">預備... 出拳！</p>
+                    </div>
+
+                    <!-- 即時手勢快照 -->
+                    <div class="absolute bottom-3 left-3 right-3 bg-gray-950/90 border border-indigo-400/30 px-3 py-2 rounded-xl flex items-center justify-between z-10">
+                        <span class="text-xs text-indigo-300 font-bold">目前偵測到：</span>
+                        <span id="user-gesture" class="text-sm font-black text-pink-400 bg-pink-500/10 px-2.5 py-0.5 rounded-lg border border-pink-500/20">偵測中...</span>
                     </div>
                 </div>
+            </div>
+
+            <!-- 中間 2/12：對決戰報與出拳詳情 -->
+            <div class="lg:col-span-2 flex flex-col items-center justify-center gap-4 py-2">
+                <div class="bg-gray-950/80 border border-pink-500/30 p-2.5 rounded-xl text-center w-28 shadow-lg">
+                    <p class="text-[10px] text-pink-300 font-bold uppercase">你出</p>
+                    <p id="vs-player-hand" class="text-xl font-black text-pink-400 mt-1">-</p>
+                </div>
                 
-                <!-- 手指愛心自動重開提示 -->
-                <div class="bg-indigo-950/40 border border-indigo-500/20 p-3 rounded-xl text-center text-xs text-indigo-300">
-                    <span class="font-bold text-pink-400"><i class="fa-solid fa-heart"></i> 手勢愛心再開：</span> 
-                    在回合結算完畢後比出手指愛心 🤌 即可免點擊自動再倒數！
+                <div class="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-amber-500">VS</div>
+                
+                <div class="bg-gray-950/80 border border-amber-500/30 p-2.5 rounded-xl text-center w-28 shadow-lg">
+                    <p class="text-[10px] text-amber-300 font-bold uppercase">對手出</p>
+                    <p id="vs-opponent-hand" class="text-xl font-black text-amber-400 mt-1">-</p>
                 </div>
             </div>
 
-            <!-- 中間 2/12：VS 能量與出拳效果 -->
-            <div class="lg:col-span-2 flex flex-col items-center justify-center gap-4 py-4">
-                <div class="bg-gray-900/90 border border-purple-500/30 px-4 py-2 rounded-xl text-center min-w-[100px]">
-                    <p class="text-xs text-purple-300 font-bold">你出</p>
-                    <p id="vs-player-hand" class="text-2xl font-black text-pink-400 mt-1">-</p>
-                </div>
-                <div class="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-amber-500 animate-pulse">VS</div>
-                <div class="bg-gray-900/90 border border-purple-500/30 px-4 py-2 rounded-xl text-center min-w-[100px]">
-                    <p class="text-xs text-purple-300 font-bold">對手出</p>
-                    <p id="vs-opponent-hand" class="text-2xl font-black text-amber-400 mt-1">-</p>
-                </div>
-            </div>
-
-            <!-- 右側 5/12：對手虛擬角色與決鬥區 -->
-            <div class="lg:col-span-5 flex flex-col items-center justify-center bg-gray-900/40 border border-indigo-500/10 rounded-2xl p-6 h-full relative min-h-[350px]">
+            <!-- 右側 5/12：對手動物形象與賽況 -->
+            <div class="lg:col-span-5 flex flex-col items-center justify-center bg-gray-950/40 border border-indigo-500/10 rounded-2xl p-6 min-h-[300px] relative">
                 
-                <!-- 決鬥大盤面 & 倒數 -->
-                <div id="countdown-layer" class="absolute inset-0 bg-gray-950/80 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center z-10 hidden">
-                    <div id="round-countdown" class="text-8xl font-black text-amber-400 title-font animate-bounce">3</div>
-                    <p class="text-sm text-gray-400 mt-4">準備出拳，比出你的手勢！</p>
-                </div>
-
-                <!-- 對手動物形象 -->
-                <div class="relative flex flex-col items-center">
-                    <div id="opponent-sprite-container" class="w-48 h-48 flex items-center justify-center float-animation relative">
-                        <span id="opponent-sprite" class="text-9xl filter drop-shadow-2xl">🦁</span>
+                <div class="relative flex flex-col items-center w-full">
+                    <!-- 動物圖片容器 -->
+                    <div id="opponent-sprite-container" class="w-40 h-40 flex items-center justify-center float-animation relative">
+                        <span id="opponent-sprite" class="text-8xl filter drop-shadow-2xl">🦁</span>
                         
-                        <!-- 對手流汗或爆發表情 -->
-                        <div id="sprite-emotion" class="absolute -top-4 -right-4 bg-gray-950/90 border border-amber-500/50 px-3 py-1 rounded-full text-xs font-bold text-amber-300 opacity-0 transition-opacity">
+                        <!-- 動物吐槽泡泡 -->
+                        <div id="sprite-emotion" class="absolute -top-4 -right-6 bg-gray-950 border border-amber-500/50 px-3 py-1 rounded-full text-xs font-bold text-amber-300 opacity-0 transition-opacity whitespace-nowrap">
                             哼！
                         </div>
                     </div>
-                    <h4 id="opponent-character-name" class="text-xl font-bold mt-4 text-amber-400">動物名稱</h4>
-                    <p id="round-result-bubble" class="text-lg font-black text-pink-400 text-center mt-2 max-w-xs h-8">準備戰鬥！</p>
+                    
+                    <h4 id="opponent-character-name" class="text-lg font-bold mt-4 text-amber-400">對手動物</h4>
+                    
+                    <!-- 賽事結果標語 -->
+                    <div class="mt-4 h-12 flex items-center justify-center text-center">
+                        <p id="result" class="text-lg font-black text-yellow-300 tracking-wide">準備開戰！</p>
+                    </div>
                 </div>
 
-                <!-- 單回合出拳手動按鈕 -->
-                <div class="mt-8 flex gap-4 w-full">
-                    <button id="next-round-btn" onclick="startRoundCountdown()" class="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 font-black rounded-xl text-sm tracking-wide shadow-lg transition">
-                        <i class="fa-solid fa-gamepad"></i> 出拳挑戰！
+                <!-- 手動出拳按鈕 -->
+                <div class="mt-6 w-full px-4">
+                    <button id="round-btn" onclick="startRound()" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:cursor-not-allowed font-black rounded-xl text-base tracking-widest shadow-lg transition-all transform hover:scale-[1.02]">
+                        <i class="fa-solid fa-play"></i> 按此出拳！
                     </button>
                 </div>
             </div>
 
         </div>
 
-        <!-- 下方操作提示 -->
-        <div id="toast-message" class="text-center text-sm text-gray-500 py-2 border-t border-indigo-500/10">
-            請允許相機權限，並站在視訊中央，背景乾淨能顯著提升 AI 偵測精準度。
+        <!-- 下方提示欄 -->
+        <div class="mt-4 pt-3 border-t border-indigo-500/10 flex flex-col sm:flex-row items-center justify-between text-xs text-gray-500 gap-2">
+            <div><i class="fa-solid fa-info-circle text-indigo-400"></i> 請將手移到相機畫面內。</div>
+            <div class="bg-pink-950/40 border border-pink-500/30 px-3 py-1 rounded-full text-pink-300 animate-pulse">
+                <i class="fa-solid fa-heart"></i> 回合結束時比「手指愛心 🤌」，免點擊直接自動再倒數！
+            </div>
         </div>
 
     </div>
 
+    <!-- 3. 勝利結算畫面 (動物傾斜倒地) -->
+    <div id="victory-screen" class="hidden w-full max-w-lg bg-gradient-to-b from-indigo-950 to-gray-950 border-4 border-emerald-500/50 rounded-3xl p-8 shadow-2xl text-center relative z-30">
+        <div class="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-emerald-500 text-gray-950 font-black text-lg px-6 py-2 rounded-full shadow-lg">
+            🏆 挑戰成功 🏆
+        </div>
 
-    <!-- ====== 4. 結算：勝利畫面 (動物倒地) ====== -->
-    <div id="victory-screen" class="hidden min-h-screen flex flex-col items-center justify-center p-6 text-center">
-        <div class="max-w-2xl bg-gradient-to-b from-indigo-950 to-gray-950 border-4 border-emerald-500/50 rounded-3xl p-10 shadow-2xl relative">
+        <div class="flex flex-col items-center my-6 relative">
+            <div class="absolute inset-0 bg-emerald-500/10 blur-3xl rounded-full"></div>
             
-            <div class="absolute -top-12 left-1/2 transform -translate-x-1/2 bg-emerald-500 text-gray-950 font-black text-2xl px-8 py-3 rounded-full shadow-lg">
-                🏆 大獲全勝 🏆
+            <!-- 擊倒展示區 -->
+            <div class="w-40 h-40 mb-4 flex items-center justify-center relative overflow-visible">
+                <span id="victory-opponent-sprite" class="text-8xl select-none">🦁</span>
             </div>
-
-            <!-- 倒地動物形象動畫展示 -->
-            <div class="flex flex-col items-center my-10 relative">
-                <div class="absolute inset-0 bg-emerald-500/10 blur-3xl rounded-full"></div>
-                
-                <div id="collapsed-animal-wrapper" class="w-44 h-44 mb-6 flex items-center justify-center">
-                    <span id="victory-opponent-sprite" class="text-9xl select-none">🦁</span>
-                </div>
-                
-                <div class="flex gap-2 text-yellow-400 text-2xl animate-spin mb-4">
-                    <i class="fa-solid fa-star"></i>
-                    <i class="fa-solid fa-star"></i>
-                </div>
-                
-                <p class="text-2xl font-black text-emerald-400">成功擊倒對手！</p>
-                <p id="victory-final-score" class="text-gray-300 mt-2">最終比分 3 : 1</p>
+            
+            <div class="flex gap-2 text-yellow-400 text-xl animate-bounce mb-3">
+                <i class="fa-solid fa-star"></i>
+                <i class="fa-solid fa-star"></i>
+                <i class="fa-solid fa-star"></i>
             </div>
-
-            <p class="text-gray-400 mb-8 text-sm">恭喜你展現了超凡的 AI 手勢掌控力，大自然界已被你的猜拳神技所折服！</p>
-
-            <button onclick="backToMenu()" class="px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black rounded-xl shadow-lg transition transform hover:scale-105">
-                <i class="fa-solid fa-house"></i> 返回主大廳
-            </button>
+            
+            <p class="text-2xl font-black text-emerald-400">對手被你徹底擊倒了！</p>
+            <p id="victory-final-score" class="text-gray-300 text-sm mt-2">最終戰績 3 : 1</p>
         </div>
+
+        <p class="text-gray-400 text-xs mb-6 leading-relaxed">你的出拳出神入化，對手毫無招架之力，完美拿下了大自然拳王爭霸！</p>
+
+        <button onclick="backToMenu()" class="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black rounded-xl shadow-lg transition transform hover:scale-105">
+            <i class="fa-solid fa-rotate-left"></i> 返回主選單
+        </button>
     </div>
 
-
-    <!-- ====== 5. 結算：失敗畫面 (地震警告與崩壞) ====== -->
-    <div id="crisis-screen" class="hidden min-h-screen flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
+    <!-- 4. 戰敗/崩壞結算畫面 -->
+    <div id="crisis-screen" class="hidden w-full max-w-lg bg-black border-4 border-red-600 rounded-3xl p-8 shadow-2xl text-center relative z-30">
         
-        <!-- 紅色閃光遮罩 & 警告標誌 -->
-        <div class="max-w-xl bg-black border-4 border-red-600 rounded-3xl p-10 shadow-2xl z-20 relative">
-            
-            <div class="w-24 h-24 bg-red-600/20 text-red-500 border border-red-600 rounded-full flex items-center justify-center text-5xl mx-auto mb-6 animate-pulse">
-                <i class="fa-solid fa-triangle-exclamation"></i>
-            </div>
+        <div class="w-16 h-16 bg-red-600/20 text-red-500 border border-red-600 rounded-full flex items-center justify-center text-3xl mx-auto mb-4 animate-pulse">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+        </div>
 
-            <h2 class="text-3xl md:text-4xl font-black text-red-500 mb-4 tracking-wider title-font uppercase">
-                ⚠️ 遊戲即將崩壞 ⚠️
-            </h2>
-            <p class="text-lg text-gray-300 mb-6 font-bold leading-relaxed">
-                系統負載異常！時空維度破碎！<br>
-                偵測到野生動物強大的反撲意志，主控台防禦機制正在瓦解！
+        <h2 class="text-2xl md:text-3xl font-black text-red-500 mb-3 tracking-widest uppercase title-font">
+            ⚠️ 警告：遊戲即將崩壞 ⚠️
+        </h2>
+        <p class="text-gray-300 text-sm mb-5 leading-relaxed">
+            系統遭遇野生動物意志逆向侵入！防禦模組全面超載瓦解！<br>
+            請立即脫離崩潰區域！
+        </p>
+        
+        <div class="bg-red-950/30 border border-red-600/30 p-3 rounded-lg mb-6">
+            <p class="text-[10px] text-red-400 font-mono tracking-widest">
+                SYSTEM CORRUPTED // CPU OVERHEAT // SHUTDOWN IMMEDIATE
             </p>
-            
-            <div class="bg-red-950/40 border border-red-600/30 p-4 rounded-xl mb-8">
-                <p class="text-xs text-red-400 font-mono tracking-widest uppercase">
-                    SYSTEM ERROR // MEMORY CRITICAL // FORCE RESET ADV_04
-                </p>
-            </div>
-
-            <button onclick="emergencyExit()" class="w-full py-5 bg-gradient-to-r from-red-600 to-red-800 hover:from-red-500 hover:to-red-700 text-white font-black text-xl rounded-2xl shadow-xl shadow-red-900/40 border border-red-500 transition duration-300 hover:scale-[1.02] active:scale-[0.98]">
-                🚨 安全退出遊戲 🚨
-            </button>
         </div>
-        
-        <div class="absolute inset-0 bg-red-950/10 pointer-events-none z-10"></div>
+
+        <button onclick="emergencyExit()" class="w-full py-4 bg-gradient-to-r from-red-600 to-red-800 hover:from-red-500 hover:to-red-700 text-white font-black text-base rounded-xl shadow-xl border border-red-500 transition duration-300 hover:scale-[1.01] active:scale-[0.99]">
+            🚨 退出遊戲 (返回主畫面) 🚨
+        </button>
     </div>
 
-
-    <!-- ====== 核心遊戲邏輯 JavaScript ====== -->
     <script>
-        // 1. 全域變數與物件關聯 (以 3D 質感 Emojis 呈現，不漏圖更穩定)
         const opponents = {
             lion: {
                 name: "威嚴獅王",
@@ -441,19 +390,16 @@
         };
 
         let selectedOpponentKey = null;
-        let pScore = 0;
-        let oScore = 0;
-        let gameTimerInterval = null;
-        let remainingSeconds = 30;
+        let pScore = 0; // 玩家累計分數
+        let oScore = 0; // 對手累計分數
         let currentGesture = "偵測中...";
-        let isRoundRunning = false;
-        let isGlobalGameActive = false;
+        let isGaming = false; // 單回合倒數進行中
+        let isGlobalGameActive = false; // 整場對決進行中
 
-        let snapshotTaken = false; 
         let isHeartDetected = false;
-        let canTriggerHeartRestart = false; // 是否允許手勢愛心自動重新開局
+        let canTriggerHeartRestart = false; // 是否允許在回合後，用手勢愛心自動重開倒數
 
-        // MediaPipe 元件
+        // MediaPipe
         const videoElement = document.getElementById('webcam');
         const canvasElement = document.getElementById('output_canvas');
         const canvasCtx = canvasElement.getContext('2d');
@@ -463,54 +409,23 @@
         canvasElement.width = 640;
         canvasElement.height = 480;
 
-        // 2. 畫面路由導向
-        function goToSelectScreen() {
-            playSound('click');
-            document.getElementById('start-screen').classList.add('hidden');
-            document.getElementById('select-screen').classList.remove('hidden');
-        }
-
-        function backToMenu() {
-            playSound('click');
-            stopGlobalTimer();
-            stopMediaPipe();
-            resetScores();
-            
-            // 恢復原本非倒地狀態
-            document.getElementById('victory-opponent-sprite').classList.remove('animal-collapse');
-            document.getElementById('victory-screen').classList.add('hidden');
-            document.getElementById('crisis-screen').classList.add('hidden');
-            document.getElementById('select-screen').classList.add('hidden');
-            document.getElementById('game-screen').classList.add('hidden');
-            document.getElementById('start-screen').classList.remove('hidden');
-
-            // 關閉地震與警鈴效果
-            document.body.classList.remove('earthquake-active', 'alarm-active');
-        }
-
-        function confirmExitGame() {
-            if (confirm("確定要放棄目前進度，退出回主畫面嗎？")) {
-                backToMenu();
-            }
-        }
-
-        // 3. 進入遊戲與初始化 MediaPipe
+        // 畫面切換與選對手
         function selectOpponent(key) {
             playSound('click');
             selectedOpponentKey = key;
             
-            // 設定對戰畫面
-            document.getElementById('active-opponent-name').innerText = opponents[key].name;
+            // 設定遊戲介面
+            document.getElementById('game-opponent-label').innerText = `${opponents[key].name} (AI)`;
             document.getElementById('opponent-character-name').innerText = opponents[key].name;
             document.getElementById('opponent-sprite').innerText = opponents[key].sprite;
             
-            // 切換畫面
-            document.getElementById('select-screen').classList.add('hidden');
+            // 介面切換
+            document.getElementById('start-screen').classList.add('hidden');
             document.getElementById('game-screen').classList.remove('hidden');
 
             resetScores();
             startMediaPipe();
-            startGlobalGame();
+            isGlobalGameActive = true;
         }
 
         function resetScores() {
@@ -520,48 +435,33 @@
             document.getElementById('opponent-score').innerText = oScore;
             document.getElementById('vs-player-hand').innerText = "-";
             document.getElementById('vs-opponent-hand').innerText = "-";
-            document.getElementById('round-result-bubble').innerText = "準備戰鬥！";
-        }
-
-        // 啟動 30 秒限時戰
-        function startGlobalGame() {
-            isGlobalGameActive = true;
-            remainingSeconds = 30;
-            document.getElementById('game-timer').innerText = remainingSeconds;
+            document.getElementById('result').innerText = "點擊下方按鈕或比出愛心手勢，挑戰開始！";
             
-            stopGlobalTimer();
-
-            gameTimerInterval = setInterval(() => {
-                remainingSeconds--;
-                document.getElementById('game-timer').innerText = remainingSeconds;
-
-                if (remainingSeconds <= 5) {
-                    document.getElementById('game-timer').classList.add('text-red-500');
-                    playSound('tick');
-                } else {
-                    document.getElementById('game-timer').classList.remove('text-red-500');
-                }
-
-                if (remainingSeconds <= 0) {
-                    stopGlobalTimer();
-                    endGlobalGame();
-                }
-            }, 1000);
-
-            // 自動觸發第一局倒數
-            setTimeout(() => {
-                startRoundCountdown();
-            }, 1500);
+            const vicOpponentSprite = document.getElementById('victory-opponent-sprite');
+            vicOpponentSprite.className = "text-8xl select-none"; // 清空倒地效果
         }
 
-        function stopGlobalTimer() {
-            if (gameTimerInterval) {
-                clearInterval(gameTimerInterval);
-                gameTimerInterval = null;
-            }
+        // 返回選角
+        function backToMenu() {
+            playSound('click');
+            stopMediaPipe();
+            resetScores();
+            isGlobalGameActive = false;
+            
+            // 恢復特效
+            document.body.classList.remove('earthquake-active', 'alarm-active');
+            
+            // 介面隱藏
+            document.getElementById('victory-screen').classList.add('hidden');
+            document.getElementById('crisis-screen').classList.add('hidden');
+            document.getElementById('game-screen').classList.add('hidden');
+            document.getElementById('start-screen').classList.remove('hidden');
         }
 
-        // 4. MediaPipe 手勢偵測
+        function confirmExitGame() {
+            backToMenu();
+        }
+
         function startMediaPipe() {
             if (camera) return; 
 
@@ -602,23 +502,22 @@
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
         }
 
-        // 辨識剪刀、石頭、布與手指愛心
         function analyzeGesture(landmarks) {
             function getDistance(pt1, pt2) {
                 return Math.sqrt(Math.pow(pt1.x - pt2.x, 2) + Math.pow(pt1.y - pt2.y, 2));
             }
 
-            // 指尖與指節相對高度
+            // 指尖與第一關節高度
             const indexOpen = landmarks[8].y < landmarks[6].y;
             const middleOpen = landmarks[12].y < landmarks[10].y;
             const ringOpen = landmarks[16].y < landmarks[14].y;
             const pinkyOpen = landmarks[20].y < landmarks[18].y;
 
-            // 手指愛心特徵：拇指尖 (4) 與食指尖 (8) 近距離接觸，且其餘三指握拳
+            // 手指愛心：拇指指尖(4)與食指指尖(8)極近距離碰觸，且其他指頭收攏閉合
             const thumbIndexDist = getDistance(landmarks[4], landmarks[8]);
-            const isFingersClosed = (!middleOpen && !ringOpen && !pinkyOpen);
+            const otherClosed = (!middleOpen && !ringOpen && !pinkyOpen);
 
-            if (thumbIndexDist < 0.05 && isFingersClosed) {
+            if (thumbIndexDist < 0.055 && otherClosed) {
                 return "手指愛心";
             }
 
@@ -641,58 +540,55 @@
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
                 
-                // 骨架線條
+                // 畫出手指關節與連接點
                 drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#818cf8', lineWidth: 4});
                 drawLandmarks(canvasCtx, landmarks, {color: '#ec4899', lineWidth: 1, radius: 4});
                 
                 currentGesture = analyzeGesture(landmarks);
-                document.getElementById('live-gesture').innerText = currentGesture;
+                document.getElementById('user-gesture').innerText = currentGesture;
 
-                // 偵測到手指愛心並在適當時機觸發自動重開
+                // 回合結束後，比「手指愛心」自動重開新一局
                 if (currentGesture === "手指愛心") {
                     if (!isHeartDetected) {
                         isHeartDetected = true;
-                        triggerHeartAction();
+                        triggerHeartAutoRestart();
                     }
                 } else {
                     isHeartDetected = false;
                 }
-
             } else {
                 currentGesture = "未偵測到手";
-                document.getElementById('live-gesture').innerText = currentGesture;
+                document.getElementById('user-gesture').innerText = currentGesture;
                 isHeartDetected = false;
             }
         }
 
-        // 手指愛心自動開啟新一回合
-        function triggerHeartAction() {
-            if (canTriggerHeartRestart && !isRoundRunning && isGlobalGameActive) {
-                playSound('go');
+        // 手指愛心動作觸發自動啟動 321 倒數
+        function triggerHeartAutoRestart() {
+            if (canTriggerHeartRestart && !isGaming && isGlobalGameActive) {
                 canTriggerHeartRestart = false; 
+                playSound('go');
                 
-                const bubble = document.getElementById('round-result-bubble');
-                bubble.innerHTML = "<span class='text-pink-400 animate-bounce'><i class='fa-solid fa-heart'></i> 愛心手勢偵測！自動重開中...</span>";
+                const resultText = document.getElementById('result');
+                resultText.innerHTML = "<span class='text-pink-400 animate-bounce'><i class='fa-solid fa-heart'></i> 愛心偵測成功！自動啟動下一局...</span>";
                 
                 setTimeout(() => {
-                    startRoundCountdown();
+                    startRound();
                 }, 1000);
             }
         }
 
-        // 5. 單回合倒數與出拳
-        function startRoundCountdown() {
-            if (isRoundRunning || !isGlobalGameActive) return;
+        function startRound() {
+            if (isGaming || !isGlobalGameActive) return;
             
-            isRoundRunning = true;
-            canTriggerHeartRestart = false; 
+            isGaming = true;
+            canTriggerHeartRestart = false; // 倒數期間暫時鎖定愛心重啟機制
 
             const countdownLayer = document.getElementById('countdown-layer');
             const countdownText = document.getElementById('round-countdown');
-            const nextRoundBtn = document.getElementById('next-round-btn');
+            const roundBtn = document.getElementById('round-btn');
             
-            nextRoundBtn.disabled = true;
-            nextRoundBtn.classList.add('bg-gray-700', 'cursor-not-allowed');
+            roundBtn.disabled = true;
             countdownLayer.classList.remove('hidden');
 
             let count = 3;
@@ -708,24 +604,22 @@
                     clearInterval(timer);
                     countdownLayer.classList.add('hidden');
                     playSound('go');
-                    executeBattleDecision();
+                    executeBattle();
                 }
-            }, 800);
+            }, 850);
         }
 
-        // 單回合勝負判定
-        function executeBattleDecision() {
+        function executeBattle() {
             const opponentInfo = opponents[selectedOpponentKey];
-            
-            // 隨機出拳 (高機率出其偏好的拳)
             const choices = ["剪刀", "石頭", "布"];
             let computerMove = "";
             
+            // AI 以 65% 的高機率出其偏好的拳
             if (Math.random() < 0.65) {
                 computerMove = opponentInfo.favor; 
             } else {
-                const remainingChoices = choices.filter(c => c !== opponentInfo.favor);
-                computerMove = remainingChoices[Math.floor(Math.random() * 2)];
+                const remain = choices.filter(c => c !== opponentInfo.favor);
+                computerMove = remain[Math.floor(Math.random() * 2)];
             }
 
             const playerMove = currentGesture;
@@ -733,44 +627,49 @@
             document.getElementById('vs-player-hand').innerText = playerMove;
             document.getElementById('vs-opponent-hand').innerText = computerMove;
 
-            const bubble = document.getElementById('round-result-bubble');
+            const resultEl = document.getElementById('result');
 
             if (playerMove === "未偵測到手" || playerMove === "偵測中..." || playerMove === "手指愛心") {
-                bubble.innerText = "❌ 未做出有效手勢！";
+                resultEl.innerText = "❌ 沒抓到有效出拳，本局不計分！";
                 playSound('lose');
-                showOpponentEmotion("😏 被我抓到空檔囉！");
+                showOpponentEmotion("😏 請手張開比拳喔！");
             } else if (playerMove === computerMove) {
-                bubble.innerText = "平手！ 🤝 再戰一局";
+                resultEl.innerText = "平手！ 🤝 再出拳一次吧";
                 playSound('tick');
-                showOpponentEmotion("😑 哦？居然平手");
+                showOpponentEmotion("😑 哼哼！居然平手");
             } else if (
                 (playerMove === "剪刀" && computerMove === "布") ||
                 (playerMove === "石頭" && computerMove === "剪刀") ||
                 (playerMove === "布" && computerMove === "石頭")
             ) {
-                bubble.innerHTML = "<span class='text-emerald-400'>🎉 這局你贏了！</span>";
+                resultEl.innerHTML = "<span class='text-emerald-400 font-extrabold'>🎉 這局你贏了！得分！</span>";
                 pScore++;
                 document.getElementById('player-score').innerText = pScore;
                 playSound('win');
-                showOpponentEmotion("😫 痛、痛痛！");
+                showOpponentEmotion("😫 好痛！被你猜到了！");
                 triggerSpriteShake();
             } else {
-                bubble.innerHTML = "<span class='text-red-400'>😢 這局你輸了...</span>";
+                resultEl.innerHTML = "<span class='text-red-400 font-extrabold'>😢 這局對手贏了！</span>";
                 oScore++;
                 document.getElementById('opponent-score').innerText = oScore;
                 playSound('lose');
-                showOpponentEmotion("😈 這局我拿下了！");
+                showOpponentEmotion("😈 本大爺拿下一局！");
             }
 
-            isRoundRunning = false;
-            nextRoundBtnStateReset();
+            isGaming = false;
+            document.getElementById('round-btn').disabled = false;
 
-            // 若還有總時間，即允許手比愛心快速重開
-            if (remainingSeconds > 2) {
+            // 檢查是否有人先達到搶三勝
+            if (pScore >= 3 || oScore >= 3) {
+                setTimeout(() => {
+                    endMatch();
+                }, 1000);
+            } else {
+                // 未分出最終勝負前，允許比愛心重新倒數
                 canTriggerHeartRestart = true;
                 setTimeout(() => {
-                    if (canTriggerHeartRestart && !isRoundRunning) {
-                        bubble.innerHTML = "<span class='text-xs text-indigo-300 animate-pulse'>🤌 比出手指愛心即可立即再開</span>";
+                    if (canTriggerHeartRestart && !isGaming) {
+                        resultEl.innerHTML = "<span class='text-xs text-indigo-300 animate-pulse'>🤌 此時比出「手指愛心」即可自動下一局</span>";
                     }
                 }, 2000);
             }
@@ -793,45 +692,38 @@
             }, 500);
         }
 
-        function nextRoundBtnStateReset() {
-            const nextRoundBtn = document.getElementById('next-round-btn');
-            nextRoundBtn.disabled = false;
-            nextRoundBtn.classList.remove('bg-gray-700', 'cursor-not-allowed');
-        }
-
-        // 6. 30秒限時結束：總決算 (勝利 / 失敗)
-        function endGlobalGame() {
+        function endMatch() {
             isGlobalGameActive = false;
             stopMediaPipe();
             
             document.getElementById('game-screen').classList.add('hidden');
 
-            if (pScore > oScore) {
+            if (pScore >= 3) {
                 triggerVictoryFlow();
             } else {
                 triggerCrisisFlow();
             }
         }
 
-        // 勝利流程：倒地、淡出
+        // 玩家獲勝：對手倒地過程
         function triggerVictoryFlow() {
             playSound('win');
-            const selectOpponentSprite = opponents[selectedOpponentKey].sprite;
+            const activeOpponent = opponents[selectedOpponentKey];
             
             const vicOpponentSprite = document.getElementById('victory-opponent-sprite');
-            vicOpponentSprite.innerText = selectOpponentSprite;
-            vicOpponentSprite.className = "text-9xl select-none"; 
+            vicOpponentSprite.innerText = activeOpponent.sprite;
+            vicOpponentSprite.className = "text-8xl select-none"; // 還原
 
-            document.getElementById('victory-final-score').innerText = `最終戰績 ${pScore} 戰勝 ${oScore}`;
+            document.getElementById('victory-final-score').innerText = `搶三勝戰績：你 ${pScore} 戰勝 ${oScore}`;
             document.getElementById('victory-screen').classList.remove('hidden');
 
-            // 動物傾斜、旋轉並滑下淡出的滑稽倒地過程動畫
+            // 觸發動物傾斜暈眩並倒地淡出過程
             setTimeout(() => {
                 vicOpponentSprite.classList.add('animal-collapse');
-            }, 100);
+            }, 150);
         }
 
-        // 危機崩壞流程：地震警鈴與退出鍵
+        // 玩家失敗：地震紅警崩潰流
         function triggerCrisisFlow() {
             let alarmCount = 0;
             const alarmTimer = setInterval(() => {
@@ -853,3 +745,4 @@
         }
     </script>
 </body>
+</html>
